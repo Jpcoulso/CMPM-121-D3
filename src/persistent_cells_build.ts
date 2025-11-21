@@ -29,7 +29,7 @@ const GAMEPLAY_ZOOM_LEVEL = 19;
 
 // Token spawn rules
 const CACHE_SPAWN_PROBABILITY = 0.10;
-const VICTORY_THRESHOLD = 48;
+const VICTORY_THRESHOLD = 16;
 
 /* -------------------------------------------------------------------------- */
 /*                               DOM STRUCTURE                                */
@@ -271,28 +271,6 @@ function renderVisibleCells() {
   const iLngStart = latLngToCellID(leaflet.latLng(0, b.getWest())).iLng;
   const iLngEnd = latLngToCellID(leaflet.latLng(0, b.getEast())).iLng + 1;
 
-  // ---------------------------------------------------------
-  // D3.b MEMORYLESS FIX:
-  // Build a set of all CURRENTLY VISIBLE cell keys.
-  // Any stored state for NON-visible cells will be forgotten.
-  // ---------------------------------------------------------
-  const visibleKeys = new Set<string>();
-  for (let iLat = iLatStart; iLat <= iLatEnd; iLat++) {
-    for (let iLng = iLngStart; iLng <= iLngEnd; iLng++) {
-      visibleKeys.add(`${iLat},${iLng}`);
-    }
-  }
-
-  // Remove picked/placed state for cells that are no longer visible.
-  for (const k of pickedUpCells) {
-    if (!visibleKeys.has(k)) pickedUpCells.delete(k);
-  }
-  for (const k of placedTokens.keys()) {
-    if (!visibleKeys.has(k)) placedTokens.delete(k);
-  }
-  // ---------------------------------------------------------
-
-  // Now draw the visible cells
   for (let iLat = iLatStart; iLat <= iLatEnd; iLat++) {
     for (let iLng = iLngStart; iLng <= iLngEnd; iLng++) {
       const cell: CellID = { iLat, iLng };
@@ -309,14 +287,8 @@ function renderVisibleCells() {
       const token = tokenForCell(cell);
       if (token !== null) {
         const icon = leaflet.divIcon({
-          html: `<div class="token-text" style="
-            pointer-events:none;
-            background:white;
-            padding:2px 4px;
-            border-radius:4px;
-            font-weight:bold;">
-            ${token}
-            </div>`,
+          html:
+            `<div class="token-text" style="pointer-events:none;background:white;padding:2px 4px;border-radius:4px;font-weight:bold">${token}</div>`,
           className: "",
           iconSize: [24, 18],
           iconAnchor: [12, 9],

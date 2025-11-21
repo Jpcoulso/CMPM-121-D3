@@ -34,5 +34,5 @@ Key gameplay challenge: Can players collect and craft tokens from nearby locatio
 
 - [x] implement player movement
 - [x] anchor global coordinate system at null island
-- [] make tokens memoryless
-- [] raise threshhold for winning the game (make the value higher)
+- [x] make tokens memoryless
+- [x] raise threshhold for winning the game (make the value higher)
