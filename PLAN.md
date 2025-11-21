@@ -36,3 +36,8 @@ Key gameplay challenge: Can players collect and craft tokens from nearby locatio
 - [x] anchor global coordinate system at null island
 - [x] make tokens memoryless
 - [x] raise threshhold for winning the game (make the value higher)
+
+## D3.c: Core mechanics (Use flyweight and memento pattern to give cells persistent memory)
+
+- [] apply flywight pattern to cells
+- [] apply memento pattern to preserve the state of modified cells when not visible on screen
