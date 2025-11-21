@@ -29,3 +29,10 @@ Key gameplay challenge: Can players collect and craft tokens from nearby locatio
 - [x] add inventory system
 - [x] make it so number tokens can be picked up
 - [x] make it so number tokens can be placed and combined
+
+## D3.b: Core mechanics (Player movement and earth spanning coordinate system)
+
+- [] implement player movement
+- [] anchor global coordinate system at null island
+- [] make tokens memoryless
+- [] raise threshhold for winning the game (make the value higher)
