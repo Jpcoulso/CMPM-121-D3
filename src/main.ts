@@ -1,35 +1,39 @@
 // @deno-types="npm:@types/leaflet"
 import leaflet from "leaflet";
 
-// Style sheets
-import "leaflet/dist/leaflet.css"; // supporting style for Leaflet
-import "./style.css"; // student-controlled page style
-
-// Fix missing marker images (starter patch)
+// Styles
+import "leaflet/dist/leaflet.css";
+import "./style.css";
 import "./_leafletWorkaround.ts";
 
-// Import our luck function (deterministic RNG provided by starter)
+// Deterministic RNG
 import luck from "./_luck.ts";
 
-/* ----------------- Configuration (tweak these) ----------------- */
+/* --------------------------- Configuration --------------------------- */
+
+// Player starts at classroom:
 const CLASSROOM_LATLNG = leaflet.latLng(
   36.997936938057016,
   -122.05703507501151,
 );
 
-// Player's mutable position (starts at the classroom position)
-let playerLat = CLASSROOM_LATLNG.lat;
-let playerLng = CLASSROOM_LATLNG.lng;
+// Grid origin is Null Island:
+const NULL_ISLAND = leaflet.latLng(0, 0);
 
+// Grid config
 const GAMEPLAY_ZOOM_LEVEL = 19;
-const TILE_DEGREES = 1e-4; // cell size
-const INTERACTION_RADIUS_CELLS = 3; // player can interact about 3 cells away
-const CACHE_SPAWN_PROBABILITY = 0.10; // base probability a cell contains a token
-const MAX_TOKEN_POWER = 16; // maximum initial token (1,2,4,8,16)
-const VICTORY_THRESHOLD = 16; // when player's held token >= this -> victory
-/* ---------------------------------------------------------------- */
+const TILE_DEGREES = 1e-4; // size of each cell in degrees
+const CACHE_SPAWN_PROBABILITY = 0.10;
+const VICTORY_THRESHOLD = 16;
 
-/* ----------------- Minimal DOM setup (keeps starter structure) ----------------- */
+// “About three cells away” in meters.
+// Approx: 1 degree latitude ≈ 111,320 meters.
+const METERS_PER_DEG_LAT = 111_320;
+const CELL_SIZE_METERS = TILE_DEGREES * METERS_PER_DEG_LAT;
+const INTERACTION_RADIUS_CELLS = 3;
+const INTERACTION_RADIUS_METERS = INTERACTION_RADIUS_CELLS * CELL_SIZE_METERS;
+
+/* --------------------------- DOM Setup --------------------------- */
 const controlPanelDiv = document.createElement("div");
 controlPanelDiv.id = "controlPanel";
 document.body.append(controlPanelDiv);
@@ -41,15 +45,18 @@ document.body.append(mapDiv);
 const statusPanelDiv = document.createElement("div");
 statusPanelDiv.id = "statusPanel";
 document.body.append(statusPanelDiv);
-/* ----------------------------------------------------------------------------- */
 
-/* ----------------- Game State (session-only) ----------------- */
-// Keys are "i,j" where i = lat-index, j = lng-index relative to CLASSROOM_LATLNG
-const pickedUpCells = new Set<string>(); // cells from which player has picked up tokens (session)
-const placedTokens = new Map<string, number>(); // player-placed tokens for session
-let playerHeldToken: number | null = null; // inventory: either null or a power-of-two
+/* --------------------------- Game State --------------------------- */
 
-/* ----------------- Leaflet map + layers ----------------- */
+const pickedUpCells = new Set<string>();
+const placedTokens = new Map<string, number>();
+let playerHeldToken: number | null = null;
+
+// PLAYER POSITION (starts at classroom)
+let playerLatLng = CLASSROOM_LATLNG;
+
+/* --------------------------- Map Setup --------------------------- */
+
 const map = leaflet.map(mapDiv, {
   center: CLASSROOM_LATLNG,
   zoom: GAMEPLAY_ZOOM_LEVEL,
@@ -57,7 +64,7 @@ const map = leaflet.map(mapDiv, {
   maxZoom: GAMEPLAY_ZOOM_LEVEL,
   zoomControl: false,
   scrollWheelZoom: false,
-  dragging: true, // allow panning if desired (player can pan), but all visible cells will be rendered to viewport
+  dragging: true,
 });
 
 leaflet
@@ -68,64 +75,57 @@ leaflet
   })
   .addTo(map);
 
-const playerMarker = leaflet.marker(leaflet.latLng(playerLat, playerLng), {
-  interactive: false,
-});
-playerMarker.bindTooltip("That's you").addTo(map);
+// Player marker
+const playerMarker = leaflet.marker(playerLatLng, { interactive: false });
+playerMarker.bindTooltip("You are here").addTo(map);
 
-// Two layer groups: one for cell rectangles; one for token labels
+// Layers
 const cellLayer = leaflet.layerGroup().addTo(map);
 const tokenLabelLayer = leaflet.layerGroup().addTo(map);
 
-/* ----------------- Utility helpers ----------------- */
-// Convert latitude to integer cell index (relative to CLASSROOM_LATLNG)
+/* --------------------------- Grid Helpers --------------------------- */
+
+// Convert latitude/longitude to grid indices relative to NULL_ISLAND
 function latToILat(lat: number): number {
-  // cell index relative to classroom origin
-  const delta = lat - CLASSROOM_LATLNG.lat;
-  return Math.floor(delta / TILE_DEGREES);
+  return Math.floor((lat - NULL_ISLAND.lat) / TILE_DEGREES);
 }
+
 function lngToILng(lng: number): number {
-  const delta = lng - CLASSROOM_LATLNG.lng;
-  return Math.floor(delta / TILE_DEGREES);
+  return Math.floor((lng - NULL_ISLAND.lng) / TILE_DEGREES);
 }
+
 function iLatToLat(iLat: number): number {
-  return CLASSROOM_LATLNG.lat + iLat * TILE_DEGREES;
+  return NULL_ISLAND.lat + iLat * TILE_DEGREES;
 }
+
 function iLngToLng(iLng: number): number {
-  return CLASSROOM_LATLNG.lng + iLng * TILE_DEGREES;
+  return NULL_ISLAND.lng + iLng * TILE_DEGREES;
 }
+
 function cellKey(iLat: number, iLng: number) {
   return `${iLat},${iLng}`;
 }
 
-// Decide whether a deterministic cell should contain a token initially.
-// Uses the provided luck() deterministic RNG with the cell key as seed.
+/* --------------------------- Token Generation --------------------------- */
+
 function deterministicCellHasToken(iLat: number, iLng: number): boolean {
-  const key = cellKey(iLat, iLng);
-  return luck(key) < CACHE_SPAWN_PROBABILITY;
+  return luck(cellKey(iLat, iLng)) < CACHE_SPAWN_PROBABILITY;
 }
 
-// Choose a token value for a deterministic cell (if it has a token).
-// Returns a power-of-two: 1,2,4,8,... up to MAX_TOKEN_POWER
 function deterministicCellTokenValue(iLat: number, iLng: number): number {
-  // Use luck(`${key}-value`) to pick
-  const key = cellKey(iLat, iLng) + "-val";
-  const r = luck(key);
-
-  // We'll bias toward smaller values: probability ∝ 1/power
-  const powers: number[] = [];
-  for (let p = 1; p <= MAX_TOKEN_POWER; p *= 2) powers.push(p);
+  const r = luck(cellKey(iLat, iLng) + "-val");
+  const powers = [1, 2, 4, 8, 16];
   const weights = powers.map((p) => 1 / p);
   const total = weights.reduce((a, b) => a + b, 0);
+
   let cum = 0;
-  for (let idx = 0; idx < powers.length; idx++) {
-    cum += weights[idx] / total;
-    if (r <= cum) return powers[idx];
+  for (let i = 0; i < powers.length; i++) {
+    cum += weights[i] / total;
+    if (r <= cum) return powers[i];
   }
-  return powers[powers.length - 1];
+  return 16;
 }
 
-// Wrapper that accounts for session modifications: placedTokens override; pickedUpCells remove token
 function tokenForCell(iLat: number, iLng: number): number | null {
   const key = cellKey(iLat, iLng);
   if (pickedUpCells.has(key)) return null;
@@ -134,260 +134,217 @@ function tokenForCell(iLat: number, iLng: number): number | null {
   return deterministicCellTokenValue(iLat, iLng);
 }
 
-// Determine if a cell is within interaction radius of the player's fixed location.
+/* --------------------------- Interaction Radius --------------------------- */
+
+// Check interaction based on real-world distance in meters
 function cellWithinInteraction(iLat: number, iLng: number): boolean {
-  const playerILat = latToILat(leaflet.latLng(playerLat, playerLng).lat); // should be 0, but compute robustly
-  const playerILng = lngToILng(leaflet.latLng(playerLat, playerLng).lng);
-  const dLat = Math.abs(iLat - playerILat);
-  const dLng = Math.abs(iLng - playerILng);
-  const dist = Math.max(dLat, dLng); // Chebyshev distance on grid
-  return dist <= INTERACTION_RADIUS_CELLS;
+  // Center of this cell
+  const centerLat = iLatToLat(iLat) + TILE_DEGREES / 2;
+  const centerLng = iLngToLng(iLng) + TILE_DEGREES / 2;
+  const cellCenter = leaflet.latLng(centerLat, centerLng);
+
+  const distMeters = playerLatLng.distanceTo(cellCenter);
+  return distMeters <= INTERACTION_RADIUS_METERS;
 }
 
-/* ----------------- UI helpers ----------------- */
+/* --------------------------- Status Panel --------------------------- */
+
 function updateStatusPanel(message?: string) {
-  const holdingText = playerHeldToken === null
+  const holding = playerHeldToken === null
     ? "Inventory: (empty)"
     : `Inventory: ${playerHeldToken}`;
-  const msgText = message ? `<div style="margin-top:6px">${message}</div>` : "";
-  statusPanelDiv.innerHTML = `<strong>${holdingText}</strong>${msgText}`;
+
+  statusPanelDiv.innerHTML = `<strong>${holding}</strong>` +
+    (message ? `<div style="margin-top:4px">${message}</div>` : "");
 }
 
-/* ----------------- Core interactions ----------------- */
+/* --------------------------- Interaction --------------------------- */
+
 function onCellClicked(iLat: number, iLng: number) {
-  const key = cellKey(iLat, iLng);
-  if (!cellWithinInteraction(iLat, iLng)) {
-    updateStatusPanel("Too far away to interact.");
+  const inRange = cellWithinInteraction(iLat, iLng);
+  if (!inRange) {
+    updateStatusPanel("Too far away.");
     return;
   }
 
+  const key = cellKey(iLat, iLng);
   const cellToken = tokenForCell(iLat, iLng);
 
-  // 1) If player empty and cell has token -> pick up
+  // Pick up
   if (playerHeldToken === null && cellToken !== null) {
     playerHeldToken = cellToken;
-    // mark cell as picked up
     pickedUpCells.add(key);
-    // if it was a placed token, remove placed override
     placedTokens.delete(key);
-    updateStatusPanel(`Picked up ${cellToken}.`);
+    updateStatusPanel(`Picked up ${cellToken}`);
     renderVisibleCells();
     checkVictory();
     return;
   }
 
-  // 2) If player holds token and cell has equal token -> craft (merge)
-  if (
-    playerHeldToken !== null && cellToken !== null &&
-    playerHeldToken === cellToken
-  ) {
-    const newValue = playerHeldToken * 2;
-    playerHeldToken = newValue;
+  // Merge
+  if (playerHeldToken !== null && cellToken === playerHeldToken) {
+    const newVal = playerHeldToken * 2;
+    playerHeldToken = newVal;
     pickedUpCells.add(key);
     placedTokens.delete(key);
-    updateStatusPanel(`Merged to ${newValue}.`);
+    updateStatusPanel(`Merged to ${newVal}`);
     renderVisibleCells();
     checkVictory();
     return;
   }
 
-  // 3) If player empty and cell empty -> nothing
+  // Place
+  if (playerHeldToken !== null && cellToken === null) {
+    placedTokens.set(key, playerHeldToken);
+    playerHeldToken = null;
+    updateStatusPanel(`Placed token`);
+    renderVisibleCells();
+    return;
+  }
+
+  // Empty cell + empty inventory
   if (playerHeldToken === null && cellToken === null) {
     updateStatusPanel("No token here.");
     return;
   }
 
-  // 4) If player holds token and cell empty -> place
-  if (playerHeldToken !== null && cellToken === null) {
-    placedTokens.set(key, playerHeldToken);
-    // ensure it's not in pickedUp (we just placed)
-    pickedUpCells.delete(key);
-    const placed = playerHeldToken;
-    playerHeldToken = null;
-    updateStatusPanel(`Placed ${placed} on the cell.`);
-    renderVisibleCells();
-    return;
-  }
-
-  // 5) If player holds token and cell has non-equal token -> show mismatch
-  if (
-    playerHeldToken !== null && cellToken !== null &&
-    playerHeldToken !== cellToken
-  ) {
+  // Mismatch
+  if (playerHeldToken !== null && cellToken !== null) {
     updateStatusPanel(
-      `Mismatch: holding ${playerHeldToken}, cell has ${cellToken}.`,
+      `Mismatch: holding ${playerHeldToken}, cell has ${cellToken}`,
     );
-    return;
   }
 }
 
-/* ----------------- Rendering ----------------- */
-// Render only the cells that appear in the current map bounds (so cells appear across the map viewport edge)
+/* --------------------------- Rendering --------------------------- */
+
 function renderVisibleCells() {
   cellLayer.clearLayers();
   tokenLabelLayer.clearLayers();
 
   const bounds = map.getBounds();
-  // We'll compute iLat and iLng ranges that cover map bounds (rounded outward)
-  const south = bounds.getSouth();
-  const north = bounds.getNorth();
-  const west = bounds.getWest();
-  const east = bounds.getEast();
-
-  // convert to iLat / iLng relative to classroom
-  const iLatStart = latToILat(south);
-  const iLatEnd = latToILat(north) + 1; // inclusive; +1 to cover top edge cells
-  const iLngStart = lngToILng(west);
-  const iLngEnd = lngToILng(east) + 1;
+  const iLatStart = latToILat(bounds.getSouth());
+  const iLatEnd = latToILat(bounds.getNorth()) + 1;
+  const iLngStart = lngToILng(bounds.getWest());
+  const iLngEnd = lngToILng(bounds.getEast()) + 1;
 
   for (let iLat = iLatStart; iLat <= iLatEnd; iLat++) {
     for (let iLng = iLngStart; iLng <= iLngEnd; iLng++) {
-      // compute geographic bounds for the cell
       const sLat = iLatToLat(iLat);
       const wLng = iLngToLng(iLng);
       const nLat = sLat + TILE_DEGREES;
       const eLng = wLng + TILE_DEGREES;
 
-      // draw light rectangle for the cell (gives grid impression to the map edge)
       const rect = leaflet.rectangle([[sLat, wLng], [nLat, eLng]], {
         color: "#aaa",
         weight: 0.5,
         fillOpacity: 0.01,
-        interactive: true,
       });
+
+      rect.on("click", () => onCellClicked(iLat, iLng));
       rect.addTo(cellLayer);
 
-      // click handler uses the integer indices
-      rect.on("click", () => onCellClicked(iLat, iLng));
-
-      // show token text if present
       const token = tokenForCell(iLat, iLng);
       if (token !== null) {
-        // center of the cell
         const centerLat = (sLat + nLat) / 2;
         const centerLng = (wLng + eLng) / 2;
 
-        // token shown as simple text (style can be changed in style.css)
         const html =
-          `<div class="token-text" style="pointer-events:none; font-weight:bold; padding:2px 4px; border-radius:4px; background:rgba(255,255,255,0.95); box-shadow:0 1px 2px rgba(0,0,0,0.15)">${token}</div>`;
+          `<div class="token-text" style="pointer-events:none;font-weight:bold;padding:2px 4px;background:white;border-radius:4px">${token}</div>`;
+
         const icon = leaflet.divIcon({
           html,
-          className: "token-div-icon",
-          iconSize: [30, 20],
-          iconAnchor: [15, 10],
+          className: "",
+          iconSize: [24, 18],
+          iconAnchor: [12, 9],
         });
-        const marker = leaflet.marker([centerLat, centerLng], {
-          icon,
-          interactive: false,
-        });
-        marker.addTo(tokenLabelLayer);
+
+        leaflet.marker([centerLat, centerLng], { icon, interactive: false })
+          .addTo(
+            tokenLabelLayer,
+          );
       }
     }
   }
 
-  // Update status UI to reflect inventory
   updateStatusPanel();
 }
 
-/* ----------------- Victory check ----------------- */
+/* --------------------------- Victory --------------------------- */
+
 function checkVictory() {
   if (playerHeldToken !== null && playerHeldToken >= VICTORY_THRESHOLD) {
-    updateStatusPanel(
-      `Victory! You hold ${playerHeldToken} (>= ${VICTORY_THRESHOLD}).`,
-    );
-    // show a popup at player location
+    updateStatusPanel(`Victory! You hold ${playerHeldToken}.`);
+
     leaflet
-      .popup({ closeOnClick: true, autoClose: true })
-      .setLatLng(CLASSROOM_LATLNG)
-      .setContent(
-        `<div style="font-weight:bold">Victory!</div><div>You have ${playerHeldToken}.</div>`,
-      )
+      .popup()
+      .setLatLng(playerLatLng)
+      .setContent(`<strong>Victory! You reached ${playerHeldToken}!</strong>`)
       .openOn(map);
   }
 }
 
-/* ----------------- Move player ----------------- */
-function movePlayerBy(deltaLatCells: number, deltaLngCells: number) {
-  // Convert cell deltas into actual latitude/longitude deltas
-  playerLat += deltaLatCells * TILE_DEGREES;
-  playerLng += deltaLngCells * TILE_DEGREES;
+/* --------------------------- Movement Buttons --------------------------- */
 
-  // Update the player marker position
-  playerMarker.setLatLng([playerLat, playerLng]);
+function movePlayer(dLatCells: number, dLngCells: number) {
+  const newLat = playerLatLng.lat + dLatCells * TILE_DEGREES;
+  const newLng = playerLatLng.lng + dLngCells * TILE_DEGREES;
 
-  // Center the map on the new position
-  map.setView([playerLat, playerLng]);
+  playerLatLng = leaflet.latLng(newLat, newLng);
+  playerMarker.setLatLng(playerLatLng);
+  map.panTo(playerLatLng);
 
-  // Update the status panel
-  updateStatusPanel(
-    `Moved to cell (${latToILat(playerLat)}, ${lngToILng(playerLng)})`,
-  );
-
-  // Re-render the grid and tokens because the visible area changed
   renderVisibleCells();
 }
 
-/* ----------------- Initial rendering + events ----------------- */
+// Build arrow button grid
+const movementDiv = document.createElement("div");
+movementDiv.className = "movement-buttons";
+movementDiv.style.marginTop = "10px";
+movementDiv.style.display = "grid";
+movementDiv.style.gridTemplateColumns = "repeat(3, 40px)";
+movementDiv.style.gap = "5px";
+
+const btnN = document.createElement("button");
+btnN.textContent = "↑";
+btnN.onclick = () => movePlayer(1, 0);
+
+const btnS = document.createElement("button");
+btnS.textContent = "↓";
+btnS.onclick = () => movePlayer(-1, 0);
+
+const btnE = document.createElement("button");
+btnE.textContent = "→";
+btnE.onclick = () => movePlayer(0, 1);
+
+const btnW = document.createElement("button");
+btnW.textContent = "←";
+btnW.onclick = () => movePlayer(0, -1);
+
+// 3×3 layout
+movementDiv.appendChild(document.createElement("div"));
+movementDiv.appendChild(btnN);
+movementDiv.appendChild(document.createElement("div"));
+
+movementDiv.appendChild(btnW);
+movementDiv.appendChild(document.createElement("div"));
+movementDiv.appendChild(btnE);
+
+movementDiv.appendChild(document.createElement("div"));
+movementDiv.appendChild(btnS);
+movementDiv.appendChild(document.createElement("div"));
+
+controlPanelDiv.innerHTML =
+  `<button id="centerBtn">Center on player</button><hr>`;
+controlPanelDiv.appendChild(movementDiv);
+
+document.getElementById("centerBtn")!.onclick = () => {
+  map.panTo(playerLatLng);
+};
+
+/* --------------------------- Initial Render --------------------------- */
+
 addEventListener("load", () => {
-  // initial status
-  updateStatusPanel(
-    "Click nearby cells to pick up tokens. You can place or merge tokens.",
-  );
-
-  // initial render for the current viewport
+  updateStatusPanel("Click nearby cells or move with buttons.");
   renderVisibleCells();
-
-  // re-render when user pans/zooms (keeps the impression that cells cover viewport edges)
-  map.on("moveend zoomend", () => {
-    renderVisibleCells();
-  });
-
-  // center map on player if they click the control panel
-  controlPanelDiv.innerHTML =
-    `<button id="centerBtn">Center on classroom</button>`;
-  controlPanelDiv.querySelector("#centerBtn")!.addEventListener("click", () => {
-    map.panTo(CLASSROOM_LATLNG);
-  });
-
-  // Movement buttons container
-  const movementDiv = document.createElement("div");
-  movementDiv.className = "movement-buttons";
-  movementDiv.style.marginTop = "10px";
-  movementDiv.style.display = "grid";
-  movementDiv.style.gridTemplateColumns = "repeat(3, 40px)";
-  movementDiv.style.gridGap = "5px";
-
-  // Create buttons
-  const btnN = document.createElement("button");
-  btnN.textContent = "↑";
-  btnN.onclick = () => movePlayerBy(+1, 0);
-
-  const btnS = document.createElement("button");
-  btnS.textContent = "↓";
-  btnS.onclick = () => movePlayerBy(-1, 0);
-
-  const btnE = document.createElement("button");
-  btnE.textContent = "→";
-  btnE.onclick = () => movePlayerBy(0, +1);
-
-  const btnW = document.createElement("button");
-  btnW.textContent = "←";
-  btnW.onclick = () => movePlayerBy(0, -1);
-
-  // Push buttons into a 3×3 grid layout
-  movementDiv.appendChild(document.createElement("div")); // empty
-  movementDiv.appendChild(btnN);
-  movementDiv.appendChild(document.createElement("div")); // empty
-
-  movementDiv.appendChild(btnW);
-  movementDiv.appendChild(document.createElement("div")); // empty
-  movementDiv.appendChild(btnE);
-
-  movementDiv.appendChild(document.createElement("div")); // empty
-  movementDiv.appendChild(btnS);
-  movementDiv.appendChild(document.createElement("div")); // empty
-
-  // Add movement section to the control panel
-  controlPanelDiv.appendChild(document.createElement("hr"));
-  controlPanelDiv.appendChild(movementDiv);
 });
