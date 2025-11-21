@@ -213,7 +213,7 @@ function onCellClicked(c: CellID) {
   const k = cellKey(c);
   const cellToken = tokenForCell(c);
 
-  // Pick up
+  // Pick up token
   if (playerHeldToken === null && cellToken !== null) {
     playerHeldToken = cellToken;
     pickedUpCells.add(k);
