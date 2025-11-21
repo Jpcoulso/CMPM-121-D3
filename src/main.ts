@@ -16,6 +16,11 @@ const CLASSROOM_LATLNG = leaflet.latLng(
   36.997936938057016,
   -122.05703507501151,
 );
+
+// Player's mutable position (starts at the classroom position)
+let playerLat = CLASSROOM_LATLNG.lat;
+let playerLng = CLASSROOM_LATLNG.lng;
+
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4; // cell size
 const INTERACTION_RADIUS_CELLS = 3; // player can interact about 3 cells away
@@ -63,8 +68,10 @@ leaflet
   })
   .addTo(map);
 
-const playerMarker = leaflet.marker(CLASSROOM_LATLNG, { interactive: false });
-playerMarker.bindTooltip("That's you (fixed location)").addTo(map);
+const playerMarker = leaflet.marker(leaflet.latLng(playerLat, playerLng), {
+  interactive: false,
+});
+playerMarker.bindTooltip("That's you").addTo(map);
 
 // Two layer groups: one for cell rectangles; one for token labels
 const cellLayer = leaflet.layerGroup().addTo(map);
@@ -129,8 +136,8 @@ function tokenForCell(iLat: number, iLng: number): number | null {
 
 // Determine if a cell is within interaction radius of the player's fixed location.
 function cellWithinInteraction(iLat: number, iLng: number): boolean {
-  const playerILat = latToILat(CLASSROOM_LATLNG.lat); // should be 0, but compute robustly
-  const playerILng = lngToILng(CLASSROOM_LATLNG.lng);
+  const playerILat = latToILat(leaflet.latLng(playerLat, playerLng).lat); // should be 0, but compute robustly
+  const playerILng = lngToILng(leaflet.latLng(playerLat, playerLng).lng);
   const dLat = Math.abs(iLat - playerILat);
   const dLng = Math.abs(iLng - playerILng);
   const dist = Math.max(dLat, dLng); // Chebyshev distance on grid
@@ -299,6 +306,27 @@ function checkVictory() {
   }
 }
 
+/* ----------------- Move player ----------------- */
+function movePlayerBy(deltaLatCells: number, deltaLngCells: number) {
+  // Convert cell deltas into actual latitude/longitude deltas
+  playerLat += deltaLatCells * TILE_DEGREES;
+  playerLng += deltaLngCells * TILE_DEGREES;
+
+  // Update the player marker position
+  playerMarker.setLatLng([playerLat, playerLng]);
+
+  // Center the map on the new position
+  map.setView([playerLat, playerLng]);
+
+  // Update the status panel
+  updateStatusPanel(
+    `Moved to cell (${latToILat(playerLat)}, ${lngToILng(playerLng)})`,
+  );
+
+  // Re-render the grid and tokens because the visible area changed
+  renderVisibleCells();
+}
+
 /* ----------------- Initial rendering + events ----------------- */
 addEventListener("load", () => {
   // initial status
@@ -320,4 +348,46 @@ addEventListener("load", () => {
   controlPanelDiv.querySelector("#centerBtn")!.addEventListener("click", () => {
     map.panTo(CLASSROOM_LATLNG);
   });
+
+  // Movement buttons container
+  const movementDiv = document.createElement("div");
+  movementDiv.className = "movement-buttons";
+  movementDiv.style.marginTop = "10px";
+  movementDiv.style.display = "grid";
+  movementDiv.style.gridTemplateColumns = "repeat(3, 40px)";
+  movementDiv.style.gridGap = "5px";
+
+  // Create buttons
+  const btnN = document.createElement("button");
+  btnN.textContent = "↑";
+  btnN.onclick = () => movePlayerBy(+1, 0);
+
+  const btnS = document.createElement("button");
+  btnS.textContent = "↓";
+  btnS.onclick = () => movePlayerBy(-1, 0);
+
+  const btnE = document.createElement("button");
+  btnE.textContent = "→";
+  btnE.onclick = () => movePlayerBy(0, +1);
+
+  const btnW = document.createElement("button");
+  btnW.textContent = "←";
+  btnW.onclick = () => movePlayerBy(0, -1);
+
+  // Push buttons into a 3×3 grid layout
+  movementDiv.appendChild(document.createElement("div")); // empty
+  movementDiv.appendChild(btnN);
+  movementDiv.appendChild(document.createElement("div")); // empty
+
+  movementDiv.appendChild(btnW);
+  movementDiv.appendChild(document.createElement("div")); // empty
+  movementDiv.appendChild(btnE);
+
+  movementDiv.appendChild(document.createElement("div")); // empty
+  movementDiv.appendChild(btnS);
+  movementDiv.appendChild(document.createElement("div")); // empty
+
+  // Add movement section to the control panel
+  controlPanelDiv.appendChild(document.createElement("hr"));
+  controlPanelDiv.appendChild(movementDiv);
 });
