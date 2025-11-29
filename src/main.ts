@@ -96,9 +96,60 @@ function centerOfCell(c: CellID): leaflet.LatLng {
 /* -------------------------------------------------------------------------- */
 
 let playerLatLng = CLASSROOM_LATLNG;
+
+// These represent the *live* in-memory state of visible modified cells
 const pickedUpCells = new Set<string>();
 const placedTokens = new Map<string, number>();
 let playerHeldToken: number | null = null;
+
+/* -------------------------------------------------------------------------- */
+/*                                MEMENTO                                     */
+/* -------------------------------------------------------------------------- */
+/**
+ * Originator state for a single cell: did its token get picked up,
+ * and is there a placed token there?
+ */
+interface CellState {
+  pickedUp: boolean;
+  placedToken: number | null;
+}
+
+/**
+ * The Memento holds a snapshot of a CellState.
+ */
+class CellMemento {
+  readonly state: CellState;
+
+  constructor(state: CellState) {
+    // defensive copy so external code can't mutate our snapshot
+    this.state = { ...state };
+  }
+}
+
+/**
+ * Caretaker: stores mementos for cells that have scrolled off screen.
+ */
+class CellCaretaker {
+  private history = new Map<string, CellMemento>();
+
+  save(key: string, state: CellState) {
+    this.history.set(key, new CellMemento(state));
+  }
+
+  restore(key: string): CellState | null {
+    const m = this.history.get(key);
+    if (!m) return null;
+    // Return a copy so callers don't mutate the stored snapshot.
+    return { ...m.state };
+  }
+
+  forget(key: string) {
+    this.history.delete(key);
+  }
+}
+
+// Single caretaker instance for all cells
+const cellCaretaker = new CellCaretaker();
 
 /* -------------------------------------------------------------------------- */
 /*                                MAP SETUP                                   */
@@ -154,6 +205,7 @@ function deterministicCellTokenValue(c: CellID): number {
 function tokenForCell(c: CellID): number | null {
   const k = cellKey(c);
 
+  // Modified state wins over deterministic generation
   if (pickedUpCells.has(k)) return null;
   if (placedTokens.has(k)) return placedTokens.get(k)!;
   if (!deterministicCellHasToken(c)) return null;
@@ -280,8 +332,32 @@ function renderVisibleCells() {
   }
 
   // -------------------------------------------------------------------
-  // FLYWEIGHT PATTERN: retain only modified cells within view
+  // FLYWEIGHT + MEMENTO:
+  //   - Only keep modified state for *visible* cells in pickedUpCells /
+  //     placedTokens.
+  //   - For modified cells that scroll off-screen, save a Memento in the
+  //     caretaker so we can restore them later.
   // -------------------------------------------------------------------
+
+  // 1. Figure out which modified cells are now off-screen
+  const offscreenKeys = new Set<string>();
+  for (const k of pickedUpCells) {
+    if (!visibleKeys.has(k)) offscreenKeys.add(k);
+  }
+  for (const k of placedTokens.keys()) {
+    if (!visibleKeys.has(k)) offscreenKeys.add(k);
+  }
+
+  // 2. Save Mementos for those off-screen modified cells
+  for (const k of offscreenKeys) {
+    const state: CellState = {
+      pickedUp: pickedUpCells.has(k),
+      placedToken: placedTokens.has(k) ? placedTokens.get(k)! : null,
+    };
+    cellCaretaker.save(k, state);
+  }
+
+  // 3. Trim live sets down to only visible modified cells
   const newPickedUp = new Set<string>();
   for (const k of pickedUpCells) {
     if (visibleKeys.has(k)) newPickedUp.add(k);
@@ -295,12 +371,28 @@ function renderVisibleCells() {
   }
   placedTokens.clear();
   for (const [k, v] of newPlaced) placedTokens.set(k, v);
-  // -------------------------------------------------------------------
 
-  // Draw visible cells
+  // -------------------------------------------------------------------
+  // Draw visible cells (restoring from Mementos when necessary)
+  // -------------------------------------------------------------------
   for (let iLat = iLatStart; iLat <= iLatEnd; iLat++) {
     for (let iLng = iLngStart; iLng <= iLngEnd; iLng++) {
       const cell: CellID = { iLat, iLng };
+      const k = cellKey(cell);
+
+      // If this visible cell has a saved Memento (from when it was off-screen),
+      // restore its state into the live sets before we draw it.
+      if (!pickedUpCells.has(k) && !placedTokens.has(k)) {
+        const saved = cellCaretaker.restore(k);
+        if (saved) {
+          if (saved.pickedUp) pickedUpCells.add(k);
+          if (saved.placedToken !== null) {
+            placedTokens.set(k, saved.placedToken);
+          }
+          // We can forget it now that it's back under live management.
+          cellCaretaker.forget(k);
+        }
+      }
 
       const rect = leaflet.rectangle(cellBounds(cell), {
         color: "#aaa",
