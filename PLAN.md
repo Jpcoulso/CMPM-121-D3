@@ -50,3 +50,12 @@ Key gameplay challenge: Can players collect and craft tokens from nearby locatio
 - [x] profile memory usage with large fake grids to ensure flyweights are reducing allocations
 
 - [] apply memento pattern to preserve the state of modified cells when not visible on screen
+- [] design a minimal CellMemento to store modified cell state
+- [] implement a CellCaretaker storing mementos in a Map<string, CellMemento>
+- [] whenever a cell is modified (pickup/place/combine), store a memento
+- [] update grid-render logic to check caretaker first when rendering a cell
+- [] restore modified state by applying memento + flyweight during rendering
+- [] clear temporary cell objects when they scroll off-screen
+- [] verify that removed temporary data is correctly rebuilt using mementos
+- [] add optional serialization function (exportState()) to prepare for D3.d
+- [] test manually by modifying a cell, scrolling away, and coming back to ensure persistence
