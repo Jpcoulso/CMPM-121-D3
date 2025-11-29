@@ -29,7 +29,7 @@ const GAMEPLAY_ZOOM_LEVEL = 19;
 
 // Token spawn rules
 const CACHE_SPAWN_PROBABILITY = 0.10;
-const VICTORY_THRESHOLD = 48;
+const VICTORY_THRESHOLD = 16;
 
 /* -------------------------------------------------------------------------- */
 /*                               DOM STRUCTURE                                */
@@ -97,8 +97,9 @@ function centerOfCell(c: CellID): leaflet.LatLng {
 
 let playerLatLng = CLASSROOM_LATLNG;
 
-const pickedUpCells = new Set<string>();
-const placedTokens = new Map<string, number>();
+// D3.c: Memento / Flyweight-style state for modified cells only
+// Key: "iLat,iLng"  Value: number (token) or null (permanently empty)
+const modifiedCells = new Map<string, number | null>();
 
 let playerHeldToken: number | null = null;
 
@@ -154,10 +155,18 @@ function deterministicCellTokenValue(c: CellID): number {
   return 16;
 }
 
+/**
+ * D3.c token lookup:
+ * - If the cell has been modified, use modifiedCells (may be null).
+ * - Otherwise, use the deterministic RNG as before.
+ */
 function tokenForCell(c: CellID): number | null {
   const k = cellKey(c);
-  if (pickedUpCells.has(k)) return null;
-  if (placedTokens.has(k)) return placedTokens.get(k)!;
+
+  if (modifiedCells.has(k)) {
+    return modifiedCells.get(k)!; // may be null = permanently empty
+  }
+
   if (!deterministicCellHasToken(c)) return null;
   return deterministicCellTokenValue(c);
 }
@@ -204,18 +213,20 @@ function onCellClicked(c: CellID) {
   const k = cellKey(c);
   const cellToken = tokenForCell(c);
 
-  // Pick up
+  // 1) Pick up: empty inventory, token present
   if (playerHeldToken === null && cellToken !== null) {
     playerHeldToken = cellToken;
-    pickedUpCells.add(k);
-    placedTokens.delete(k);
+
+    // D3.c: mark this cell as permanently empty (until we place something)
+    modifiedCells.set(k, null);
+
     updateStatusPanel(`Picked up ${cellToken}`);
     renderVisibleCells();
     checkVictory();
     return;
   }
 
-  // Merge
+  // 2) Merge: same value in hand and cell
   if (
     playerHeldToken !== null &&
     cellToken !== null &&
@@ -223,35 +234,41 @@ function onCellClicked(c: CellID) {
   ) {
     const newVal = playerHeldToken * 2;
     playerHeldToken = newVal;
-    pickedUpCells.add(k);
-    placedTokens.delete(k);
+
+    // Cell consumed by merge → now empty (persistently)
+    modifiedCells.set(k, null);
+
     updateStatusPanel(`Merged → ${newVal}`);
     renderVisibleCells();
     checkVictory();
     return;
   }
 
-  // Place
+  // 3) Place: have a token, cell is empty
   if (playerHeldToken !== null && cellToken === null) {
-    placedTokens.set(k, playerHeldToken);
-    pickedUpCells.delete(k);
+    // Place token persistently at this cell
+    modifiedCells.set(k, playerHeldToken);
+
+    const placed = playerHeldToken;
     playerHeldToken = null;
-    updateStatusPanel("Placed token.");
+
+    updateStatusPanel(`Placed ${placed} on the cell.`);
     renderVisibleCells();
     return;
   }
 
-  // Nothing here + empty inventory
+  // 4) Empty inventory + empty cell
   if (playerHeldToken === null && cellToken === null) {
     updateStatusPanel("No token here.");
     return;
   }
 
-  // Mismatch
+  // 5) Mismatch
   if (playerHeldToken !== null && cellToken !== null) {
     updateStatusPanel(
       `Mismatch: holding ${playerHeldToken}, cell has ${cellToken}`,
     );
+    return;
   }
 }
 
@@ -271,28 +288,6 @@ function renderVisibleCells() {
   const iLngStart = latLngToCellID(leaflet.latLng(0, b.getWest())).iLng;
   const iLngEnd = latLngToCellID(leaflet.latLng(0, b.getEast())).iLng + 1;
 
-  // ---------------------------------------------------------
-  // D3.b MEMORYLESS FIX:
-  // Build a set of all CURRENTLY VISIBLE cell keys.
-  // Any stored state for NON-visible cells will be forgotten.
-  // ---------------------------------------------------------
-  const visibleKeys = new Set<string>();
-  for (let iLat = iLatStart; iLat <= iLatEnd; iLat++) {
-    for (let iLng = iLngStart; iLng <= iLngEnd; iLng++) {
-      visibleKeys.add(`${iLat},${iLng}`);
-    }
-  }
-
-  // Remove picked/placed state for cells that are no longer visible.
-  for (const k of pickedUpCells) {
-    if (!visibleKeys.has(k)) pickedUpCells.delete(k);
-  }
-  for (const k of placedTokens.keys()) {
-    if (!visibleKeys.has(k)) placedTokens.delete(k);
-  }
-  // ---------------------------------------------------------
-
-  // Now draw the visible cells
   for (let iLat = iLatStart; iLat <= iLatEnd; iLat++) {
     for (let iLng = iLngStart; iLng <= iLngEnd; iLng++) {
       const cell: CellID = { iLat, iLng };
@@ -309,14 +304,8 @@ function renderVisibleCells() {
       const token = tokenForCell(cell);
       if (token !== null) {
         const icon = leaflet.divIcon({
-          html: `<div class="token-text" style="
-            pointer-events:none;
-            background:white;
-            padding:2px 4px;
-            border-radius:4px;
-            font-weight:bold;">
-            ${token}
-            </div>`,
+          html:
+            `<div class="token-text" style="pointer-events:none;background:white;padding:2px 4px;border-radius:4px;font-weight:bold">${token}</div>`,
           className: "",
           iconSize: [24, 18],
           iconAnchor: [12, 9],

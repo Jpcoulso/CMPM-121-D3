@@ -28,31 +28,27 @@ const INTERACTION_RADIUS_CELLS = 3;
 const GAMEPLAY_ZOOM_LEVEL = 19;
 
 // Token spawn rules
-const CACHE_SPAWN_PROBABILITY = 0.1;
-const VICTORY_THRESHOLD = 48;
-
-// Token value distribution
-const TOKEN_POWERS = [1, 2, 4, 8, 16] as const;
-const TOKEN_WEIGHTS = TOKEN_POWERS.map((p) => 1 / p);
-const TOKEN_WEIGHT_TOTAL = TOKEN_WEIGHTS.reduce((a, b) => a + b, 0);
+const CACHE_SPAWN_PROBABILITY = 0.10;
+const VICTORY_THRESHOLD = 16;
 
 /* -------------------------------------------------------------------------- */
 /*                               DOM STRUCTURE                                */
 /* -------------------------------------------------------------------------- */
 
-function createDivWithId(id: string): HTMLDivElement {
-  const div = document.createElement("div");
-  div.id = id;
-  document.body.append(div);
-  return div;
-}
+const controlPanelDiv = document.createElement("div");
+controlPanelDiv.id = "controlPanel";
+document.body.append(controlPanelDiv);
 
-const controlPanelDiv = createDivWithId("controlPanel");
-const mapDiv = createDivWithId("map");
-const statusPanelDiv = createDivWithId("statusPanel");
+const mapDiv = document.createElement("div");
+mapDiv.id = "map";
+document.body.append(mapDiv);
+
+const statusPanelDiv = document.createElement("div");
+statusPanelDiv.id = "statusPanel";
+document.body.append(statusPanelDiv);
 
 /* -------------------------------------------------------------------------- */
-/*                                 CELL ID                                    */
+/*                                CELL ID                                      */
 /* -------------------------------------------------------------------------- */
 
 export interface CellID {
@@ -100,10 +96,8 @@ function centerOfCell(c: CellID): leaflet.LatLng {
 /* -------------------------------------------------------------------------- */
 
 let playerLatLng = CLASSROOM_LATLNG;
-
 const pickedUpCells = new Set<string>();
 const placedTokens = new Map<string, number>();
-
 let playerHeldToken: number | null = null;
 
 /* -------------------------------------------------------------------------- */
@@ -128,9 +122,7 @@ leaflet
   })
   .addTo(map);
 
-const playerMarker = leaflet.marker(playerLatLng, {
-  interactive: false,
-});
+const playerMarker = leaflet.marker(playerLatLng, { interactive: false });
 playerMarker.bindTooltip("You are here").addTo(map);
 
 /* Cell + token layers */
@@ -147,32 +139,30 @@ function deterministicCellHasToken(c: CellID): boolean {
 
 function deterministicCellTokenValue(c: CellID): number {
   const r = luck(cellKey(c) + "-val");
+  const powers = [1, 2, 4, 8, 16];
+  const weights = powers.map((p) => 1 / p);
+  const total = weights.reduce((a, b) => a + b, 0);
+
   let cum = 0;
-
-  for (let i = 0; i < TOKEN_POWERS.length; i++) {
-    cum += TOKEN_WEIGHTS[i] / TOKEN_WEIGHT_TOTAL;
-    if (r <= cum) return TOKEN_POWERS[i];
+  for (let i = 0; i < powers.length; i++) {
+    cum += weights[i] / total;
+    if (r <= cum) return powers[i];
   }
-
-  // Fallback (should only hit due to any floating point edge case)
-  return TOKEN_POWERS[TOKEN_POWERS.length - 1];
+  return 16;
 }
 
 function tokenForCell(c: CellID): number | null {
   const k = cellKey(c);
+
   if (pickedUpCells.has(k)) return null;
-
-  if (placedTokens.has(k)) {
-    return placedTokens.get(k)!;
-  }
-
+  if (placedTokens.has(k)) return placedTokens.get(k)!;
   if (!deterministicCellHasToken(c)) return null;
 
   return deterministicCellTokenValue(c);
 }
 
 /* -------------------------------------------------------------------------- */
-/*                               INTERACTIONS                                 */
+/*                               INTERACTIONS                                  */
 /* -------------------------------------------------------------------------- */
 
 function playerCell(): CellID {
@@ -188,6 +178,7 @@ function cellWithinInteraction(c: CellID): boolean {
 
 function updateStatusPanel(msg?: string) {
   const inv = playerHeldToken === null ? "(empty)" : String(playerHeldToken);
+
   statusPanelDiv.innerHTML = `<strong>Inventory: ${inv}</strong>` +
     (msg ? `<div style="margin-top:4px">${msg}</div>` : "");
 }
@@ -213,7 +204,7 @@ function onCellClicked(c: CellID) {
   const k = cellKey(c);
   const cellToken = tokenForCell(c);
 
-  // Pick up token
+  // Pick up
   if (playerHeldToken === null && cellToken !== null) {
     playerHeldToken = cellToken;
     pickedUpCells.add(k);
@@ -265,10 +256,13 @@ function onCellClicked(c: CellID) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                RENDERING                                   */
+/*                                RENDERING                                    */
 /* -------------------------------------------------------------------------- */
 
-function computeVisibleIndexRange() {
+function renderVisibleCells() {
+  cellLayer.clearLayers();
+  tokenLabelLayer.clearLayers();
+
   const b = map.getBounds();
 
   const iLatStart = latLngToCellID(leaflet.latLng(b.getSouth(), 0)).iLat;
@@ -276,15 +270,6 @@ function computeVisibleIndexRange() {
 
   const iLngStart = latLngToCellID(leaflet.latLng(0, b.getWest())).iLng;
   const iLngEnd = latLngToCellID(leaflet.latLng(0, b.getEast())).iLng + 1;
-
-  return { iLatStart, iLatEnd, iLngStart, iLngEnd };
-}
-
-function renderVisibleCells() {
-  cellLayer.clearLayers();
-  tokenLabelLayer.clearLayers();
-
-  const { iLatStart, iLatEnd, iLngStart, iLngEnd } = computeVisibleIndexRange();
 
   // ---------------------------------------------------------
   // D3.b MEMORYLESS FIX:
@@ -348,7 +333,7 @@ function renderVisibleCells() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                   MOVE                                     */
+/*                                   MOVE                                      */
 /* -------------------------------------------------------------------------- */
 
 function movePlayer(dLatCells: number, dLngCells: number) {
@@ -356,21 +341,15 @@ function movePlayer(dLatCells: number, dLngCells: number) {
     playerLatLng.lat + dLatCells * TILE_DEGREES,
     playerLatLng.lng + dLngCells * TILE_DEGREES,
   );
+
   playerMarker.setLatLng(playerLatLng);
   map.panTo(playerLatLng);
   renderVisibleCells();
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                   UI                                       */
+/*                                     UI                                     */
 /* -------------------------------------------------------------------------- */
-
-function createButton(label: string, onClick: () => void): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.textContent = label;
-  btn.onclick = onClick;
-  return btn;
-}
 
 // Arrow buttons
 const movementDiv = document.createElement("div");
@@ -379,20 +358,29 @@ movementDiv.style.gridTemplateColumns = "repeat(3, 40px)";
 movementDiv.style.gap = "5px";
 movementDiv.style.marginTop = "8px";
 
-const btnN = createButton("↑", () => movePlayer(1, 0));
-const btnS = createButton("↓", () => movePlayer(-1, 0));
-const btnE = createButton("→", () => movePlayer(0, 1));
-const btnW = createButton("←", () => movePlayer(0, -1));
+const btnN = document.createElement("button");
+btnN.textContent = "↑";
+btnN.onclick = () => movePlayer(1, 0);
+
+const btnS = document.createElement("button");
+btnS.textContent = "↓";
+btnS.onclick = () => movePlayer(-1, 0);
+
+const btnE = document.createElement("button");
+btnE.textContent = "→";
+btnE.onclick = () => movePlayer(0, 1);
+
+const btnW = document.createElement("button");
+btnW.textContent = "←";
+btnW.onclick = () => movePlayer(0, -1);
 
 // 3×3 layout
 movementDiv.appendChild(document.createElement("div"));
 movementDiv.appendChild(btnN);
 movementDiv.appendChild(document.createElement("div"));
-
 movementDiv.appendChild(btnW);
 movementDiv.appendChild(document.createElement("div"));
 movementDiv.appendChild(btnE);
-
 movementDiv.appendChild(document.createElement("div"));
 movementDiv.appendChild(btnS);
 movementDiv.appendChild(document.createElement("div"));
@@ -406,7 +394,7 @@ document.getElementById("centerBtn")!.onclick = () => {
 };
 
 /* -------------------------------------------------------------------------- */
-/*                                INIT                                        */
+/*                                     INIT                                    */
 /* -------------------------------------------------------------------------- */
 
 addEventListener("load", () => {

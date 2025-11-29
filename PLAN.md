@@ -39,5 +39,14 @@ Key gameplay challenge: Can players collect and craft tokens from nearby locatio
 
 ## D3.c: Core mechanics (Use flyweight and memento pattern to give cells persistent memory)
 
-- [] apply flywight pattern to cells
+- [] identify intrinsic state of a cell (value, type)
+- [] identify extrinsic state of a cell (global coordinates, screen position, visible/not)
+- [] create a CellFlyweight type to store intrinsic state
+- [] implement CellFlyweightFactory with internal cache
+- [] refactor cell creation so grid rendering requests flyweights from the factory
+- [] remove per-cell intrinsic data from the main grid structure
+- [] update rendering functions so they accept extrinsic state as parameters
+- [] add debugging counters to confirm flyweights are reused
+- [] profile memory usage with large fake grids to ensure flyweights are reducing allocations
+
 - [] apply memento pattern to preserve the state of modified cells when not visible on screen
