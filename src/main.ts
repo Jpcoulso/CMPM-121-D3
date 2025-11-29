@@ -271,11 +271,7 @@ function renderVisibleCells() {
   const iLngStart = latLngToCellID(leaflet.latLng(0, b.getWest())).iLng;
   const iLngEnd = latLngToCellID(leaflet.latLng(0, b.getEast())).iLng + 1;
 
-  // ---------------------------------------------------------
-  // D3.b MEMORYLESS FIX:
-  // Build a set of all CURRENTLY VISIBLE cell keys.
-  // Any stored state for NON-visible cells will be forgotten.
-  // ---------------------------------------------------------
+  // Build visible cell key set
   const visibleKeys = new Set<string>();
   for (let iLat = iLatStart; iLat <= iLatEnd; iLat++) {
     for (let iLng = iLngStart; iLng <= iLngEnd; iLng++) {
@@ -283,16 +279,25 @@ function renderVisibleCells() {
     }
   }
 
-  // Remove picked/placed state for cells that are no longer visible.
+  // -------------------------------------------------------------------
+  // FLYWEIGHT PATTERN: retain only modified cells within view
+  // -------------------------------------------------------------------
+  const newPickedUp = new Set<string>();
   for (const k of pickedUpCells) {
-    if (!visibleKeys.has(k)) pickedUpCells.delete(k);
+    if (visibleKeys.has(k)) newPickedUp.add(k);
   }
-  for (const k of placedTokens.keys()) {
-    if (!visibleKeys.has(k)) placedTokens.delete(k);
-  }
-  // ---------------------------------------------------------
+  pickedUpCells.clear();
+  for (const k of newPickedUp) pickedUpCells.add(k);
 
-  // Now draw the visible cells
+  const newPlaced = new Map<string, number>();
+  for (const [k, v] of placedTokens) {
+    if (visibleKeys.has(k)) newPlaced.set(k, v);
+  }
+  placedTokens.clear();
+  for (const [k, v] of newPlaced) placedTokens.set(k, v);
+  // -------------------------------------------------------------------
+
+  // Draw visible cells
   for (let iLat = iLatStart; iLat <= iLatEnd; iLat++) {
     for (let iLng = iLngStart; iLng <= iLngEnd; iLng++) {
       const cell: CellID = { iLat, iLng };
