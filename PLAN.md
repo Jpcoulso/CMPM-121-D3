@@ -76,3 +76,10 @@ Key gameplay challenge: Can players collect and craft tokens from nearby locatio
 - [] create a Facade-style movement manager that hides the complexity of switching between movement systems
 - [] support both button-based and geolocation-based movement under the same interface
 - [] add a way to switch movement modes (e.g., query string flag or on-screen UI control)
+
+### persistence requirements
+
+- [] use browser localStorage API to persist game state across page loads
+- [] persist player position, inventory, caretaker/memento state, and any other required game data
+- [] load saved state on startup so the player continues exactly where they left off
+- [] provide a way for the player to start a new game (clearing saved state)
