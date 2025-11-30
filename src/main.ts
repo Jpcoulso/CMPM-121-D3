@@ -39,13 +39,13 @@ const controlPanelDiv = document.createElement("div");
 controlPanelDiv.id = "controlPanel";
 document.body.append(controlPanelDiv);
 
+const statusPanelDiv = document.createElement("div");
+statusPanelDiv.id = "statusPanel";
+controlPanelDiv.append(statusPanelDiv);
+
 const mapDiv = document.createElement("div");
 mapDiv.id = "map";
 document.body.append(mapDiv);
-
-const statusPanelDiv = document.createElement("div");
-statusPanelDiv.id = "statusPanel";
-document.body.append(statusPanelDiv);
 
 /* -------------------------------------------------------------------------- */
 /*                                CELL ID                                      */
@@ -617,8 +617,11 @@ movementDiv.appendChild(document.createElement("div"));
 movementDiv.appendChild(btnS);
 movementDiv.appendChild(document.createElement("div"));
 
-controlPanelDiv.innerHTML =
-  `<button id="centerBtn">Center on player</button><hr>`;
+// Center button
+const centerBtn = document.createElement("button");
+centerBtn.textContent = "Center on player";
+centerBtn.onclick = () => map.panTo(playerLatLng);
+controlPanelDiv.appendChild(centerBtn);
 
 // NEW GAME BUTTON
 const newGameBtn = document.createElement("button");
@@ -656,11 +659,14 @@ modeBtn.onclick = () => {
 
 controlPanelDiv.appendChild(modeBtn);
 
+// Horizontal line
+controlPanelDiv.appendChild(document.createElement("hr"));
+
+// Movement arrows
 controlPanelDiv.appendChild(movementDiv);
 
-document.getElementById("centerBtn")!.onclick = () => {
-  map.panTo(playerLatLng);
-};
+// Inventory panel (statusPanelDiv)
+controlPanelDiv.appendChild(statusPanelDiv);
 
 /* -------------------------------------------------------------------------- */
 /*                             RESET GAME STATE                               */
