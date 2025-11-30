@@ -620,6 +620,18 @@ movementDiv.appendChild(document.createElement("div"));
 controlPanelDiv.innerHTML =
   `<button id="centerBtn">Center on player</button><hr>`;
 
+// NEW GAME BUTTON
+const newGameBtn = document.createElement("button");
+newGameBtn.textContent = "New Game";
+newGameBtn.style.marginBottom = "8px";
+
+newGameBtn.onclick = () => {
+  if (!confirm("Start a new game? All progress will be lost.")) return;
+  resetGameState();
+};
+
+controlPanelDiv.appendChild(newGameBtn);
+
 // Add movement mode toggle
 const modeBtn = document.createElement("button");
 modeBtn.textContent = "Switch to Geo Mode";
@@ -649,6 +661,29 @@ controlPanelDiv.appendChild(movementDiv);
 document.getElementById("centerBtn")!.onclick = () => {
   map.panTo(playerLatLng);
 };
+
+/* -------------------------------------------------------------------------- */
+/*                             RESET GAME STATE                               */
+/* -------------------------------------------------------------------------- */
+
+function resetGameState() {
+  // Wipe localStorage
+  localStorage.removeItem("tokengo_save");
+
+  // Reset runtime state
+  pickedUpCells.clear();
+  placedTokens.clear();
+  playerHeldToken = null;
+
+  // Reset player position
+  playerLatLng = CLASSROOM_LATLNG;
+  playerMarker.setLatLng(playerLatLng);
+  map.panTo(playerLatLng);
+
+  // Re-render map
+  updateStatusPanel("New game started.");
+  renderVisibleCells();
+}
 
 /* -------------------------------------------------------------------------- */
 /*                                     INIT                                   */
