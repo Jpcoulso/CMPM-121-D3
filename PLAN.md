@@ -59,3 +59,20 @@ Key gameplay challenge: Can players collect and craft tokens from nearby locatio
 - [x] verify that removed temporary data is correctly rebuilt using mementos
 - [x] add optional serialization function (exportState()) to prepare for D3.d
 - [x] test manually by modifying a cell, scrolling away, and coming back to ensure persistence
+
+## D3.d Core Mechanics (Geolaction movement sytem, player movement hidden using the facade pattern, persistent game state across page loads)
+
+### gameplay requirements
+
+- [] the player can move their character by physically moving around in the real world
+- [] closing and reopening the game returns the player to the same game state
+- [] provide an explicit “new game” option
+- [] provide a mechanism to switch between button-based and geolocation-based movement
+
+### movement system requirements
+
+- [] browser geolocation API should be used to control player character movement instead of on-screen buttons
+- [] implement a movement-control interface so game code does not depend directly on button-based or geolocation-based movement
+- [] create a Facade-style movement manager that hides the complexity of switching between movement systems
+- [] support both button-based and geolocation-based movement under the same interface
+- [] add a way to switch movement modes (e.g., query string flag or on-screen UI control)
