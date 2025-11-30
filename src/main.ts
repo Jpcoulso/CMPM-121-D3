@@ -430,7 +430,93 @@ function renderVisibleCells() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                   MOVE                                      */
+/*                          MOVEMENT CONTROLLER API                           */
+/* -------------------------------------------------------------------------- */
+
+interface MovementController {
+  start(): void; // begin listening for movement events
+  stop(): void; // stop listening
+}
+
+/* -------------------------------------------------------------------------- */
+/*                      BUTTON-BASED MOVEMENT CONTROLLER                      */
+/* -------------------------------------------------------------------------- */
+
+class ButtonMovementController implements MovementController {
+  private intervalId: number | null = null;
+
+  start() {
+    // Buttons control movement directly (already implemented in your UI)
+    // No polling needed.
+  }
+
+  stop() {
+    // Nothing needed since movement comes from UI buttons
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                       GEOLOCATION MOVEMENT CONTROLLER                      */
+/* -------------------------------------------------------------------------- */
+
+class GeoMovementController implements MovementController {
+  private watchId: number | null = null;
+
+  start() {
+    if (!navigator.geolocation) {
+      alert("Geolocation not supported.");
+      return;
+    }
+
+    this.watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const newLat = pos.coords.latitude;
+        const newLng = pos.coords.longitude;
+        movePlayerTo(newLat, newLng);
+      },
+      (err) => {
+        console.error("GPS error:", err);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 500,
+        timeout: 8000,
+      },
+    );
+  }
+
+  stop() {
+    if (this.watchId !== null) {
+      navigator.geolocation.clearWatch(this.watchId);
+      this.watchId = null;
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 FACADE                                     */
+/* -------------------------------------------------------------------------- */
+
+class MovementFacade {
+  private current: MovementController;
+
+  constructor(defaultController: MovementController) {
+    this.current = defaultController;
+    this.current.start();
+  }
+
+  switchTo(controller: MovementController) {
+    this.current.stop();
+    this.current = controller;
+    this.current.start();
+  }
+}
+
+// Create the facade (default = button controls)
+const movementSystem = new MovementFacade(new ButtonMovementController());
+
+/* -------------------------------------------------------------------------- */
+/*                                   MOVE                                     */
 /* -------------------------------------------------------------------------- */
 
 function movePlayer(dLatCells: number, dLngCells: number) {
@@ -438,7 +524,14 @@ function movePlayer(dLatCells: number, dLngCells: number) {
     playerLatLng.lat + dLatCells * TILE_DEGREES,
     playerLatLng.lng + dLngCells * TILE_DEGREES,
   );
+  playerMarker.setLatLng(playerLatLng);
+  map.panTo(playerLatLng);
+  renderVisibleCells();
+}
 
+// New: used by geolocation controller
+function movePlayerTo(lat: number, lng: number) {
+  playerLatLng = leaflet.latLng(lat, lng);
   playerMarker.setLatLng(playerLatLng);
   map.panTo(playerLatLng);
   renderVisibleCells();
@@ -484,6 +577,27 @@ movementDiv.appendChild(document.createElement("div"));
 
 controlPanelDiv.innerHTML =
   `<button id="centerBtn">Center on player</button><hr>`;
+
+// Add movement mode toggle
+const modeBtn = document.createElement("button");
+modeBtn.textContent = "Switch to Geo Mode";
+
+let usingGeo = false;
+
+modeBtn.onclick = () => {
+  if (!usingGeo) {
+    movementSystem.switchTo(new GeoMovementController());
+    modeBtn.textContent = "Switch to Button Mode";
+    usingGeo = true;
+  } else {
+    movementSystem.switchTo(new ButtonMovementController());
+    modeBtn.textContent = "Switch to Geo Mode";
+    usingGeo = false;
+  }
+};
+
+controlPanelDiv.appendChild(modeBtn);
+
 controlPanelDiv.appendChild(movementDiv);
 
 document.getElementById("centerBtn")!.onclick = () => {
@@ -491,7 +605,7 @@ document.getElementById("centerBtn")!.onclick = () => {
 };
 
 /* -------------------------------------------------------------------------- */
-/*                                     INIT                                    */
+/*                                     INIT                                   */
 /* -------------------------------------------------------------------------- */
 
 addEventListener("load", () => {
