@@ -586,7 +586,11 @@ let usingGeo = false;
 
 modeBtn.onclick = () => {
   if (!usingGeo) {
-    movementSystem.switchTo(new GeoMovementController());
+    // Allow the click event to finish first (required on iOS)
+    setTimeout(() => {
+      movementSystem.switchTo(new GeoMovementController());
+    }, 0);
+
     modeBtn.textContent = "Switch to Button Mode";
     usingGeo = true;
   } else {
