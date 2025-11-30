@@ -103,6 +103,43 @@ const placedTokens = new Map<string, number>();
 let playerHeldToken: number | null = null;
 
 /* -------------------------------------------------------------------------- */
+/*                           LOCAL STORAGE PERSISTENCE                        */
+/* -------------------------------------------------------------------------- */
+
+function saveGameState() {
+  const state = {
+    playerLat: playerLatLng.lat,
+    playerLng: playerLatLng.lng,
+    pickedUpCells: Array.from(pickedUpCells),
+    placedTokens: Array.from(placedTokens.entries()),
+    playerHeldToken,
+  };
+
+  localStorage.setItem("tokengo_save", JSON.stringify(state));
+}
+
+function loadGameState() {
+  const raw = localStorage.getItem("tokengo_save");
+  if (!raw) return;
+
+  try {
+    const data = JSON.parse(raw);
+
+    playerLatLng = leaflet.latLng(data.playerLat, data.playerLng);
+
+    pickedUpCells.clear();
+    for (const k of data.pickedUpCells) pickedUpCells.add(k);
+
+    placedTokens.clear();
+    for (const [k, v] of data.placedTokens) placedTokens.set(k, v);
+
+    playerHeldToken = data.playerHeldToken ?? null;
+  } catch (err) {
+    console.error("Save data corrupted:", err);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /*                                MEMENTO                                     */
 /* -------------------------------------------------------------------------- */
 /**
@@ -264,6 +301,7 @@ function onCellClicked(c: CellID) {
     updateStatusPanel(`Picked up ${cellToken}`);
     renderVisibleCells();
     checkVictory();
+    saveGameState();
     return;
   }
 
@@ -280,6 +318,7 @@ function onCellClicked(c: CellID) {
     updateStatusPanel(`Merged → ${newVal}`);
     renderVisibleCells();
     checkVictory();
+    saveGameState();
     return;
   }
 
@@ -290,6 +329,7 @@ function onCellClicked(c: CellID) {
     playerHeldToken = null;
     updateStatusPanel("Placed token.");
     renderVisibleCells();
+    saveGameState();
     return;
   }
 
@@ -527,6 +567,7 @@ function movePlayer(dLatCells: number, dLngCells: number) {
   playerMarker.setLatLng(playerLatLng);
   map.panTo(playerLatLng);
   renderVisibleCells();
+  saveGameState();
 }
 
 // New: used by geolocation controller
@@ -535,6 +576,7 @@ function movePlayerTo(lat: number, lng: number) {
   playerMarker.setLatLng(playerLatLng);
   map.panTo(playerLatLng);
   renderVisibleCells();
+  saveGameState();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -613,6 +655,10 @@ document.getElementById("centerBtn")!.onclick = () => {
 /* -------------------------------------------------------------------------- */
 
 addEventListener("load", () => {
+  loadGameState(); // <- NEW: restore state
+  playerMarker.setLatLng(playerLatLng);
+  map.panTo(playerLatLng);
+
   updateStatusPanel("Move with arrows and click nearby cells.");
   renderVisibleCells();
 
